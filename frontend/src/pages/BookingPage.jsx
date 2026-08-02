@@ -246,15 +246,8 @@ export default function BookingPage() {
     }
 
     setSubmitting(true)
+    let thawaniBookingCreated = false
     try {
-      const latestPrice = await requestPricePreview(appointments)
-      setPricePreview(latestPrice)
-
-      if (latestPrice.totalPrice !== pricePreview.totalPrice) {
-        setError('تغيّر السعر أو العرض. راجع السعر النهائي المحدّث ثم اضغط التأكيد مرة أخرى.')
-        return
-      }
-
       const result = await apiRequest('/bookings/batch', {
         method: 'POST',
         body: {
@@ -262,12 +255,14 @@ export default function BookingPage() {
           phone: customer.phone.trim(),
           email: customer.email.trim() || null,
           paymentMethod: customer.paymentMethod,
-          expectedTotalPrice: latestPrice.totalPrice,
+          expectedTotalPrice: pricePreview.totalPrice,
+          priceQuoteToken: pricePreview.quoteToken,
           slots: toBookingSlots(appointments),
         },
       })
 
       if (customer.paymentMethod === 'Thawani') {
+        thawaniBookingCreated = true
         const bookingIds = result.bookings.map((booking) => booking.id)
         const payment = await apiRequest('/payments/thawani/sessions', {
           method: 'POST',
@@ -275,7 +270,11 @@ export default function BookingPage() {
         })
         sessionStorage.setItem(
           'pending_thawani_payment',
-          JSON.stringify({ phone: customer.phone.trim(), bookingIds }),
+          JSON.stringify({
+            phone: customer.phone.trim(),
+            bookingIds,
+            sessionId: payment.sessionId,
+          }),
         )
         window.location.assign(payment.paymentUrl)
         return
@@ -289,7 +288,21 @@ export default function BookingPage() {
         },
       })
     } catch (requestError) {
-      setError(requestError.message)
+      if (thawaniBookingCreated) {
+        navigate('/payment/cancel', {
+          state: { paymentError: requestError.message },
+        })
+      } else if (requestError.status === 409) {
+        try {
+          const refreshedPrice = await requestPricePreview(appointments)
+          setPricePreview(refreshedPrice)
+          setError('انتهى عرض السعر أو لم يعد الملعب متاحًا. راجع السعر المحدّث ثم أكد الحجز مرة أخرى.')
+        } catch (refreshError) {
+          setError(refreshError.message)
+        }
+      } else {
+        setError(requestError.message)
+      }
     } finally {
       setSubmitting(false)
     }

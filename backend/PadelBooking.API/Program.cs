@@ -23,6 +23,8 @@ builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IAppClock, OmanClock>();
 builder.Services.AddSingleton<BookingCreationLock>();
+builder.Services.AddSingleton<ICourtSelector, RandomCourtSelector>();
+builder.Services.AddSingleton<BookingQuoteProtector>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.Configure<ThawaniOptions>(
     builder.Configuration.GetSection(ThawaniOptions.SectionName));

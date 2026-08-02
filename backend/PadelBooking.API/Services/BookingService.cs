@@ -33,15 +33,21 @@ public class BookingService
     private readonly AppDbContext _context;
     private readonly IAppClock _clock;
     private readonly BookingCreationLock _creationLock;
+    private readonly ICourtSelector _courtSelector;
+    private readonly BookingQuoteProtector _quoteProtector;
 
     public BookingService(
         AppDbContext context,
         IAppClock clock,
-        BookingCreationLock creationLock)
+        BookingCreationLock creationLock,
+        ICourtSelector courtSelector,
+        BookingQuoteProtector quoteProtector)
     {
         _context = context;
         _clock = clock;
         _creationLock = creationLock;
+        _courtSelector = courtSelector;
+        _quoteProtector = quoteProtector;
     }
 
     public async Task<BookingPricePreviewResult> PreviewAsync(
@@ -62,6 +68,11 @@ public class BookingService
             }
 
             var slots = plan.Slots.Select(ToPriceDto).ToList();
+            var expiresAt = _clock.UtcNow.Add(_quoteProtector.Lifetime);
+            var quoteToken = _quoteProtector.Protect(new BookingQuotePayload(
+                expiresAt,
+                plan.Slots.Select(ToQuotePayload).ToList()));
+
             return new BookingPricePreviewResult(
                 BookingCreationFailureKind.None,
                 null,
@@ -69,7 +80,9 @@ public class BookingService
                 {
                     Slots = slots,
                     TotalPrice = slots.Sum(slot => slot.TotalPrice),
-                    TotalSavings = slots.Sum(slot => slot.Savings)
+                    TotalSavings = slots.Sum(slot => slot.Savings),
+                    QuoteToken = quoteToken,
+                    QuoteExpiresAt = expiresAt
                 });
         }
         finally
@@ -87,7 +100,12 @@ public class BookingService
         try
         {
             await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-            var plan = await BuildPlanAsync(request.Slots, cancellationToken);
+            var plan = string.IsNullOrWhiteSpace(request.PriceQuoteToken)
+                ? await BuildPlanAsync(request.Slots, cancellationToken)
+                : await BuildPlanFromQuoteAsync(
+                    request.Slots,
+                    request.PriceQuoteToken,
+                    cancellationToken);
             if (!plan.IsSuccess)
             {
                 return CreationFailure(plan.FailureKind, plan.ErrorMessage!);
@@ -215,34 +233,153 @@ public class BookingService
                 .ThenByDescending(offer => offer.MinimumHours)
                 .FirstOrDefault();
 
-            var pricedCourts = availableCourts
-                .Select(court => new
-                {
-                    Court = court,
-                    FinalPrice = bestEligibleOffer == null
-                        ? court.PricePerHour
-                        : Math.Min(court.PricePerHour, bestEligibleOffer.PricePerHour)
-                })
-                .ToList();
-            var lowestPrice = pricedCourts.Min(item => item.FinalPrice);
-            var standardPrice = availableCourts.Min(court => court.PricePerHour);
-            var bestPriceCourts = pricedCourts
-                .Where(item => item.FinalPrice == lowestPrice)
-                .ToList();
-            var selectedCourt = bestPriceCourts[Random.Shared.Next(bestPriceCourts.Count)];
+            var selectedCourt = _courtSelector.Select(availableCourts);
             var appliedOffer = bestEligibleOffer != null &&
-                bestEligibleOffer.PricePerHour < standardPrice
+                bestEligibleOffer.PricePerHour < selectedCourt.PricePerHour
                     ? bestEligibleOffer
                     : null;
+            var finalPrice = appliedOffer?.PricePerHour ?? selectedCourt.PricePerHour;
 
             plannedSlots.Add(new PlannedBookingSlot(
-                selectedCourt.Court,
+                selectedCourt,
                 slot,
                 bookingDate,
                 endTime,
                 appliedOffer,
-                standardPrice,
-                selectedCourt.FinalPrice));
+                selectedCourt.PricePerHour,
+                finalPrice));
+        }
+
+        return new BookingPlanResult(
+            BookingCreationFailureKind.None,
+            null,
+            plannedSlots);
+    }
+
+    private async Task<BookingPlanResult> BuildPlanFromQuoteAsync(
+        IReadOnlyCollection<BookingSlotRequestDto> requestedSlots,
+        string quoteToken,
+        CancellationToken cancellationToken)
+    {
+        var slotValidationError = ValidateSlots(requestedSlots);
+        if (slotValidationError != null)
+        {
+            return PlanningFailure(BookingCreationFailureKind.Validation, slotValidationError);
+        }
+
+        if (!_quoteProtector.TryUnprotect(quoteToken.Trim(), out var quote) || quote == null)
+        {
+            return PlanningFailure(
+                BookingCreationFailureKind.Conflict,
+                "The price quote is invalid. Please refresh the price and try again.");
+        }
+
+        if (quote.ExpiresAtUtc <= _clock.UtcNow)
+        {
+            return PlanningFailure(
+                BookingCreationFailureKind.Conflict,
+                "The price quote has expired. Please refresh the price and try again.");
+        }
+
+        var slots = requestedSlots.ToList();
+        if (quote.Slots.Count != slots.Count)
+        {
+            return QuoteMismatch();
+        }
+
+        for (var index = 0; index < slots.Count; index++)
+        {
+            var requestSlot = slots[index];
+            var quotedSlot = quote.Slots[index];
+
+            if (quotedSlot.BookingDate.Date != requestSlot.BookingDate.Date ||
+                quotedSlot.StartTimeTicks != requestSlot.StartTime.Ticks ||
+                quotedSlot.Hours != requestSlot.Hours)
+            {
+                return QuoteMismatch();
+            }
+        }
+
+        var quotedCourtIds = quote.Slots
+            .Select(slot => slot.CourtId)
+            .Distinct()
+            .ToList();
+        var courts = await _context.Courts
+            .AsNoTracking()
+            .Where(court => court.IsActive && quotedCourtIds.Contains(court.Id))
+            .ToListAsync(cancellationToken);
+
+        if (courts.Count != quotedCourtIds.Count)
+        {
+            return QuoteUnavailable();
+        }
+
+        var plannedSlots = new List<PlannedBookingSlot>();
+
+        for (var index = 0; index < slots.Count; index++)
+        {
+            var requestSlot = slots[index];
+            var quotedSlot = quote.Slots[index];
+            var bookingDate = requestSlot.BookingDate.Date;
+            var nextDate = bookingDate.AddDays(1);
+            var endTime = requestSlot.StartTime.Add(TimeSpan.FromHours(requestSlot.Hours));
+            var court = courts.Single(item => item.Id == quotedSlot.CourtId);
+
+            var existingBookings = await _context.Bookings
+                .AsNoTracking()
+                .Where(booking =>
+                    booking.BookingDate >= bookingDate &&
+                    booking.BookingDate < nextDate &&
+                    booking.BookingStatus != "Cancelled")
+                .ToListAsync(cancellationToken);
+            var closures = await _context.Closures
+                .AsNoTracking()
+                .Where(closure =>
+                    closure.Date >= bookingDate &&
+                    closure.Date < nextDate)
+                .ToListAsync(cancellationToken);
+
+            var isUnavailable =
+                court.OpeningTime > requestSlot.StartTime ||
+                court.ClosingTime < endTime ||
+                closures.Any(closure => closure.CourtId == null || closure.CourtId == court.Id) ||
+                existingBookings.Any(booking =>
+                    booking.CourtId == court.Id &&
+                    booking.StartTime < endTime &&
+                    booking.EndTime > requestSlot.StartTime) ||
+                plannedSlots.Any(planned =>
+                    planned.BookingDate == bookingDate &&
+                    planned.Court.Id == court.Id &&
+                    planned.Request.StartTime < endTime &&
+                    planned.EndTime > requestSlot.StartTime);
+
+            if (isUnavailable)
+            {
+                return QuoteUnavailable();
+            }
+
+            Offer? appliedOffer = null;
+            if (quotedSlot.AppliedOfferId.HasValue &&
+                quotedSlot.OfferMinimumHours.HasValue &&
+                quotedSlot.OfferPricePerHour.HasValue)
+            {
+                appliedOffer = new Offer
+                {
+                    Id = quotedSlot.AppliedOfferId.Value,
+                    MinimumHours = quotedSlot.OfferMinimumHours.Value,
+                    PricePerHour = quotedSlot.OfferPricePerHour.Value,
+                    IsActive = true
+                };
+            }
+
+            plannedSlots.Add(new PlannedBookingSlot(
+                court,
+                requestSlot,
+                bookingDate,
+                endTime,
+                appliedOffer,
+                quotedSlot.StandardPricePerHour,
+                quotedSlot.FinalPricePerHour));
         }
 
         return new BookingPlanResult(
@@ -305,6 +442,20 @@ public class BookingService
         };
     }
 
+    private static BookingQuoteSlotPayload ToQuotePayload(PlannedBookingSlot slot)
+    {
+        return new BookingQuoteSlotPayload(
+            slot.BookingDate,
+            slot.Request.StartTime.Ticks,
+            slot.Request.Hours,
+            slot.Court.Id,
+            slot.AppliedOffer?.Id,
+            slot.AppliedOffer?.MinimumHours,
+            slot.AppliedOffer?.PricePerHour,
+            slot.StandardPricePerHour,
+            slot.FinalPricePerHour);
+    }
+
     private static BookingCreationResult CreationFailure(
         BookingCreationFailureKind kind,
         string message)
@@ -317,6 +468,20 @@ public class BookingService
         string message)
     {
         return new BookingPlanResult(kind, message, Array.Empty<PlannedBookingSlot>());
+    }
+
+    private static BookingPlanResult QuoteMismatch()
+    {
+        return PlanningFailure(
+            BookingCreationFailureKind.Conflict,
+            "The booking details do not match the price quote. Please refresh the price and try again.");
+    }
+
+    private static BookingPlanResult QuoteUnavailable()
+    {
+        return PlanningFailure(
+            BookingCreationFailureKind.Conflict,
+            "The quoted court is no longer available. Please select the time again.");
     }
 
     private sealed record PlannedBookingSlot(

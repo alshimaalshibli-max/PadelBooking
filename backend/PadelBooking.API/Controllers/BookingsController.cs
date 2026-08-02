@@ -228,6 +228,7 @@ public class BookingsController : ControllerBase
             Email = dto.Email,
             PaymentMethod = dto.PaymentMethod,
             ExpectedTotalPrice = dto.ExpectedTotalPrice,
+            PriceQuoteToken = dto.PriceQuoteToken,
             Slots = new List<BookingSlotRequestDto>
             {
                 new()

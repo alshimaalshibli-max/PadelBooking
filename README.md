@@ -5,7 +5,7 @@
 ## الوظائف الرئيسية
 
 - عرض الأوقات المتاحة دون كشف أسماء الملاعب للعميل.
-- تخصيص ملعب متاح عشوائيًا ومنع تعارض الحجوزات.
+- تخصيص ملعب متاح عشوائيًا ومنع تعارض الحجوزات، مع تثبيت السعر عبر عرض سعر مشفّر قصير الصلاحية.
 - حجز ساعة أو عدة ساعات وعدة مواعيد أو أيام ضمن عملية ذرية واحدة.
 - الدفع عند الوصول أو إنشاء جلسة دفع عبر Thawani Sandbox.
 - إدارة الملاعب والأسعار وساعات العمل.
@@ -32,12 +32,20 @@
 
 ## إعداد Backend
 
-أسرار الإدارة وThawani غير محفوظة في المستودع. اضبطها في جلسة PowerShell قبل التشغيل:
+أسرار الإدارة وThawani غير محفوظة في كود التطبيق. اضبطها في جلسة PowerShell قبل التشغيل.
+
+### بيانات دخول Demo للتقييم المحلي
+
+- اسم المستخدم: `admin`
+- كلمة المرور: `PadelDemo-2026!`
+
+هذه بيانات تجريبية مقترحة للتشغيل المحلي فقط، وليست إعدادات افتراضية داخل التطبيق. غيّرها عند أي نشر حقيقي.
 
 ```powershell
-$env:AdminAuth__Username="<admin-username>"
-$env:AdminAuth__Password="<strong-admin-password>"
-$env:AdminAuth__JwtKey="<random-secret-key-at-least-32-bytes>"
+$env:AdminAuth__Username="admin"
+$env:AdminAuth__Password="PadelDemo-2026!"
+$env:AdminAuth__JwtKey="Local-Demo-Jwt-Key-Change-For-Any-Deployment-2026"
+$env:BookingQuotes__EncryptionKey="Local-Demo-Quote-Key-Change-For-Any-Deployment-2026"
 
 # Required only for electronic payment testing.
 $env:Thawani__SecretKey="<sandbox-secret-key>"
@@ -91,11 +99,14 @@ dotnet test backend\PadelBooking.API.Tests\PadelBooking.API.Tests.csproj
 - تسجيل دخول الإدارة ورفض البيانات الخاطئة.
 - حماية المسارات الإدارية.
 - الحجز الصحيح والتعارض والعروض.
+- التوزيع العشوائي وثبات السعر النهائي باستخدام عرض السعر المشفّر.
 - الأوقات الماضية والإغلاقات.
 - ذرية الحجز الجماعي.
 - الإغلاقات الجماعية ونطاق التواريخ.
 - الإلغاء والدفع والإكمال.
 - الفلاتر وPagination.
+- صيغة إنشاء جلسة Thawani والتحقق من المبلغ والعملة والمرجع.
+- إلغاء الحجز غير المدفوع عند تعذر إنشاء جلسة Thawani.
 
 ## إعداد Thawani Sandbox
 
@@ -113,9 +124,12 @@ dotnet test backend\PadelBooking.API.Tests\PadelBooking.API.Tests.csproj
 - `/payment/success`
 - `/payment/cancel`
 
+يحوّل Backend الريال العُماني إلى البيسة (`1 OMR = 1000`) ويتحقق من أن مبلغ الجلسة وعملتها ومرجعها تطابق الحجوزات قبل تحديث حالة الدفع. إذا تعذر إنشاء جلسة الدفع، تُلغى الحجوزات غير المدفوعة حتى لا تبقى المواعيد محجوزة دون دفع.
+
 ## ملاحظات الأمان
 
 - لا توجد بيانات دخول أو مفاتيح دفع حقيقية داخل الكود.
+- قيم Demo الواردة في README مخصصة للتقييم المحلي ويجب استبدالها في أي نشر فعلي.
 - رمز الإدارة يُحفظ في `sessionStorage` ويُزال عند تسجيل الخروج.
 - مسارات الإدارة فقط تتطلب دور `Admin`.
 - إنشاء الحجز وعرض الأوقات والدفع متاحة للعميل دون حساب.

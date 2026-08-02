@@ -8,13 +8,42 @@ export default function PaymentResultPage({ mode }) {
   const { location } = useRouter()
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search])
   const [status, setStatus] = useState(
-    mode === 'cancel' ? 'cancelled' : location.state?.cashBooking ? 'success' : 'loading',
+    location.state?.cashBooking ? 'success' : 'loading',
   )
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (mode === 'cancel') {
-      sessionStorage.removeItem('pending_thawani_payment')
+      const storedPayment = sessionStorage.getItem('pending_thawani_payment')
+      if (!storedPayment) {
+        setStatus('cancelled')
+        setMessage(location.state?.paymentError || '')
+        return
+      }
+
+      let pendingPayment
+      try {
+        pendingPayment = JSON.parse(storedPayment)
+      } catch {
+        sessionStorage.removeItem('pending_thawani_payment')
+        setStatus('error')
+        setMessage('تعذر قراءة معلومات جلسة الدفع.')
+        return
+      }
+
+      apiRequest('/payments/thawani/cancel', {
+        method: 'POST',
+        body: pendingPayment,
+      })
+        .then((result) => {
+          setStatus(result.paid ? 'success' : 'cancelled')
+          setMessage(result.message)
+          sessionStorage.removeItem('pending_thawani_payment')
+        })
+        .catch((requestError) => {
+          setStatus('error')
+          setMessage(requestError.message)
+        })
       return
     }
     if (location.state?.cashBooking) return
@@ -28,7 +57,15 @@ export default function PaymentResultPage({ mode }) {
       return
     }
 
-    const pendingPayment = JSON.parse(storedPayment)
+    let pendingPayment
+    try {
+      pendingPayment = JSON.parse(storedPayment)
+    } catch {
+      sessionStorage.removeItem('pending_thawani_payment')
+      setStatus('error')
+      setMessage('تعذر قراءة معلومات جلسة الدفع.')
+      return
+    }
     apiRequest('/payments/thawani/verify', {
       method: 'POST',
       body: {

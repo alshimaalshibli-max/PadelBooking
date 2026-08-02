@@ -149,6 +149,65 @@ public class BackendIntegrationTests
     }
 
     [Fact]
+    public async Task PriceQuote_PreservesRandomCourtSelectionAndFinalPrice()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var date = FutureDate(12);
+
+        await AuthenticateAdminAsync(client);
+        var courtUpdate = await client.PutAsJsonAsync("/api/courts/2", new
+        {
+            name = "Court 2",
+            pricePerHour = 20,
+            openingTime = "08:00:00",
+            closingTime = "23:00:00",
+            isActive = true
+        });
+        Assert.Equal(HttpStatusCode.OK, courtUpdate.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var previewResponse = await client.PostAsJsonAsync("/api/bookings/preview", new
+        {
+            slots = new[]
+            {
+                new { bookingDate = date, startTime = "15:00:00", hours = 1 }
+            }
+        });
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+
+        var preview = await ReadJsonAsync<BookingPricePreviewDto>(previewResponse);
+        Assert.False(string.IsNullOrWhiteSpace(preview.QuoteToken));
+        Assert.True(preview.QuoteExpiresAt > DateTime.UtcNow);
+        Assert.Equal(20m, preview.TotalPrice);
+        Assert.Equal(20m, Assert.Single(preview.Slots).StandardPricePerHour);
+
+        var bookingResponse = await client.PostAsJsonAsync("/api/bookings/batch", new
+        {
+            phone = "96660001",
+            paymentMethod = "Cash",
+            expectedTotalPrice = preview.TotalPrice,
+            priceQuoteToken = preview.QuoteToken,
+            slots = new[]
+            {
+                new { bookingDate = date, startTime = "15:00:00", hours = 1 }
+            }
+        });
+        Assert.Equal(HttpStatusCode.OK, bookingResponse.StatusCode);
+
+        var bookingPayload = await ReadJsonAsync<JsonElement>(bookingResponse);
+        var bookingId = bookingPayload.GetProperty("bookings")[0].GetProperty("id").GetInt32();
+
+        await AuthenticateAdminAsync(client);
+        var booking = await client.GetFromJsonAsync<BookingDto>(
+            $"/api/bookings/{bookingId}",
+            JsonOptions);
+        Assert.NotNull(booking);
+        Assert.Equal(2, booking.CourtId);
+        Assert.Equal(20m, booking.TotalPrice);
+    }
+
+    [Fact]
     public async Task CreateBooking_CreatesValidBooking()
     {
         await using var factory = new ApiFactory();
@@ -162,6 +221,48 @@ public class BackendIntegrationTests
         Assert.Null(booking.CustomerName);
         Assert.Equal(10m, booking.TotalPrice);
         Assert.Equal("Confirmed", booking.BookingStatus);
+    }
+
+    [Fact]
+    public async Task ThawaniSessionFailure_CancelsUnpaidBookingsAndReleasesTheSlot()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var date = FutureDate(13);
+
+        var bookingResponse = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            phone = "97770001",
+            bookingDate = date,
+            startTime = "16:00:00",
+            hours = 1,
+            paymentMethod = "Thawani"
+        });
+        Assert.Equal(HttpStatusCode.Created, bookingResponse.StatusCode);
+        var createdBooking = await ReadJsonAsync<BookingConfirmationDto>(bookingResponse);
+
+        var sessionResponse = await client.PostAsJsonAsync("/api/payments/thawani/sessions", new
+        {
+            phone = "97770001",
+            bookingIds = new[] { createdBooking.Id }
+        });
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, sessionResponse.StatusCode);
+
+        await AuthenticateAdminAsync(client);
+        var cancelledBooking = await client.GetFromJsonAsync<BookingDto>(
+            $"/api/bookings/{createdBooking.Id}",
+            JsonOptions);
+        Assert.NotNull(cancelledBooking);
+        Assert.Equal("Cancelled", cancelledBooking.BookingStatus);
+        Assert.Equal("Failed", cancelledBooking.PaymentStatus);
+
+        client.DefaultRequestHeaders.Authorization = null;
+        var replacementResponse = await CreateBookingAsync(
+            client,
+            date,
+            TimeSpan.FromHours(16),
+            phone: "97770002");
+        Assert.Equal(HttpStatusCode.Created, replacementResponse.StatusCode);
     }
 
     [Fact]

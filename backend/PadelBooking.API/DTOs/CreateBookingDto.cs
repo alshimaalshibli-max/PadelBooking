@@ -45,4 +45,7 @@ public class CreateBookingDto
         "100000000",
         ErrorMessage = "Expected total price must be greater than zero when provided.")]
     public decimal? ExpectedTotalPrice { get; set; }
+
+    [StringLength(20000, ErrorMessage = "Price quote token is too long.")]
+    public string? PriceQuoteToken { get; set; }
 }

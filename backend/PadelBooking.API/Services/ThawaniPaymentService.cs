@@ -15,7 +15,9 @@ public record ThawaniVerificationResult(
     bool IsSuccess,
     string? ErrorMessage,
     bool IsPaid,
-    string? ClientReferenceId);
+    string? ClientReferenceId,
+    int? TotalAmount,
+    string? Currency);
 
 public class ThawaniPaymentService
 {
@@ -48,10 +50,7 @@ public class ThawaniPaymentService
         {
             name = $"Padel booking {booking.Id} - {booking.BookingDate:yyyy-MM-dd}",
             quantity = 1,
-            unit_amount = checked((int)decimal.Round(
-                booking.TotalPrice * 1000m,
-                0,
-                MidpointRounding.AwayFromZero))
+            unit_amount = ToMinorUnits(booking.TotalPrice)
         });
 
         var payload = new
@@ -71,20 +70,46 @@ public class ThawaniPaymentService
         request.Headers.Add("thawani-api-key", _options.SecretKey);
         request.Content = JsonContent.Create(payload);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        using var document = await ReadResponseAsync(response, cancellationToken);
-
-        if (!response.IsSuccessStatusCode ||
-            !TryGetString(document.RootElement, "data", "session_id", out var sessionId))
+        HttpResponseMessage response;
+        try
         {
-            return new(false, GetDescription(document.RootElement), null, null);
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return new(false, "Thawani Sandbox could not be reached.", null, null);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new(false, "Thawani Sandbox request timed out.", null, null);
         }
 
-        var paymentUrl =
-            $"{_options.CheckoutBaseUrl.TrimEnd('/')}/pay/{Uri.EscapeDataString(sessionId)}" +
-            $"?key={Uri.EscapeDataString(_options.PublishableKey)}";
+        using (response)
+        using (var document = await ReadResponseAsync(response, cancellationToken))
+        {
+            if (!response.IsSuccessStatusCode ||
+                !TryGetString(document.RootElement, "data", "session_id", out var sessionId))
+            {
+                return new(false, GetDescription(document.RootElement), null, null);
+            }
 
-        return new(true, null, sessionId, paymentUrl);
+            var expectedTotalAmount = ToMinorUnits(bookings.Sum(booking => booking.TotalPrice));
+            if (!TryGetString(document.RootElement, "data", "client_reference_id", out var returnedReference) ||
+                !string.Equals(returnedReference, clientReferenceId, StringComparison.Ordinal) ||
+                !TryGetInt32(document.RootElement, "data", "total_amount", out var returnedTotalAmount) ||
+                returnedTotalAmount != expectedTotalAmount ||
+                !TryGetString(document.RootElement, "data", "currency", out var returnedCurrency) ||
+                !string.Equals(returnedCurrency, "OMR", StringComparison.OrdinalIgnoreCase))
+            {
+                return new(false, "Thawani returned unexpected checkout session details.", null, null);
+            }
+
+            var paymentUrl =
+                $"{_options.CheckoutBaseUrl.TrimEnd('/')}/pay/{Uri.EscapeDataString(sessionId)}" +
+                $"?key={Uri.EscapeDataString(_options.PublishableKey)}";
+
+            return new(true, null, sessionId, paymentUrl);
+        }
     }
 
     public async Task<ThawaniVerificationResult> VerifySessionAsync(
@@ -93,7 +118,7 @@ public class ThawaniPaymentService
     {
         if (!IsConfigured)
         {
-            return new(false, "Thawani Sandbox keys are not configured.", false, null);
+            return new(false, "Thawani Sandbox keys are not configured.", false, null, null, null);
         }
 
         using var request = new HttpRequestMessage(
@@ -101,22 +126,49 @@ public class ThawaniPaymentService
             $"api/v1/checkout/session/{Uri.EscapeDataString(sessionId)}");
         request.Headers.Add("thawani-api-key", _options.SecretKey);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        using var document = await ReadResponseAsync(response, cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
-            return new(false, GetDescription(document.RootElement), false, null);
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return new(false, "Thawani Sandbox could not be reached.", false, null, null, null);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new(false, "Thawani Sandbox request timed out.", false, null, null, null);
         }
 
-        TryGetString(document.RootElement, "data", "payment_status", out var paymentStatus);
-        TryGetString(document.RootElement, "data", "client_reference_id", out var clientReferenceId);
+        using (response)
+        using (var document = await ReadResponseAsync(response, cancellationToken))
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                return new(false, GetDescription(document.RootElement), false, null, null, null);
+            }
 
-        return new(
-            true,
-            null,
-            string.Equals(paymentStatus, "paid", StringComparison.OrdinalIgnoreCase),
-            clientReferenceId);
+            TryGetString(document.RootElement, "data", "payment_status", out var paymentStatus);
+            TryGetString(document.RootElement, "data", "client_reference_id", out var clientReferenceId);
+            var hasTotalAmount = TryGetInt32(
+                document.RootElement,
+                "data",
+                "total_amount",
+                out var totalAmount);
+            var hasCurrency = TryGetString(
+                document.RootElement,
+                "data",
+                "currency",
+                out var currency);
+
+            return new(
+                true,
+                null,
+                string.Equals(paymentStatus, "paid", StringComparison.OrdinalIgnoreCase),
+                clientReferenceId,
+                hasTotalAmount ? totalAmount : null,
+                hasCurrency ? currency : null);
+        }
     }
 
     private static async Task<JsonDocument> ReadResponseAsync(
@@ -147,6 +199,28 @@ public class ThawaniPaymentService
             data.TryGetProperty(propertyName, out var property) &&
             property.ValueKind == JsonValueKind.String &&
             (value = property.GetString() ?? string.Empty).Length > 0;
+    }
+
+    private static bool TryGetInt32(
+        JsonElement root,
+        string objectName,
+        string propertyName,
+        out int value)
+    {
+        value = 0;
+
+        return root.TryGetProperty(objectName, out var data) &&
+            data.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.Number &&
+            property.TryGetInt32(out value);
+    }
+
+    public static int ToMinorUnits(decimal amount)
+    {
+        return checked((int)decimal.Round(
+            amount * 1000m,
+            0,
+            MidpointRounding.AwayFromZero));
     }
 
     private static string GetDescription(JsonElement root)

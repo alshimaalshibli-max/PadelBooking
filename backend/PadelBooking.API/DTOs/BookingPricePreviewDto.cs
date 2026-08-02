@@ -15,6 +15,8 @@ public class BookingPricePreviewDto
     public List<BookingSlotPriceDto> Slots { get; set; } = new();
     public decimal TotalPrice { get; set; }
     public decimal TotalSavings { get; set; }
+    public string QuoteToken { get; set; } = string.Empty;
+    public DateTime QuoteExpiresAt { get; set; }
 }
 
 public class BookingSlotPriceDto

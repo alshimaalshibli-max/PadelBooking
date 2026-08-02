@@ -9,6 +9,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using PadelBooking.API.Data;
+using PadelBooking.API.Models;
+using PadelBooking.API.Services;
 
 namespace PadelBooking.API.Tests;
 
@@ -36,6 +38,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
                 ["AdminAuth:Issuer"] = "PadelBooking.API.Tests",
                 ["AdminAuth:Audience"] = "PadelBooking.API.Tests.Admin",
                 ["AdminAuth:TokenLifetimeMinutes"] = "30",
+                ["BookingQuotes:EncryptionKey"] = "Test-Only-Booking-Quote-Encryption-Key",
+                ["BookingQuotes:LifetimeMinutes"] = "5",
                 ["ConnectionStrings:DefaultConnection"] = "Data Source=:memory:",
                 ["Logging:LogLevel:Default"] = "Warning",
                 ["Logging:LogLevel:Microsoft.EntityFrameworkCore"] = "Warning"
@@ -47,6 +51,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<AppDbContext>();
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(_connection));
+            services.RemoveAll<ICourtSelector>();
+            services.AddSingleton<ICourtSelector, HighestPriceCourtSelector>();
             services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,
                 options =>
@@ -64,5 +70,16 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
                     };
                 });
         });
+    }
+}
+
+internal sealed class HighestPriceCourtSelector : ICourtSelector
+{
+    public Court Select(IReadOnlyList<Court> availableCourts)
+    {
+        return availableCourts
+            .OrderByDescending(court => court.PricePerHour)
+            .ThenByDescending(court => court.Id)
+            .First();
     }
 }
