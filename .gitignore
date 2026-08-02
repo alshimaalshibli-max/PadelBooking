@@ -1,0 +1,30 @@
+# .NET build output
+**/bin/
+**/obj/
+TestResults/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+.pnpm-store/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+frontend/.env.local
+
+# SQLite transient files
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary working files
+tmp/
+
+# Editor and operating system files
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

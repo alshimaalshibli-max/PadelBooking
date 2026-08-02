@@ -1,0 +1,33 @@
+@PadelBooking.API_HostAddress = http://localhost:5018
+@AdminToken = paste-jwt-here
+
+### Public availability
+GET {{PadelBooking.API_HostAddress}}/api/bookings/available?date=2030-08-01
+Accept: application/json
+
+###
+
+### Create a public batch booking
+POST {{PadelBooking.API_HostAddress}}/api/bookings/batch
+Content-Type: application/json
+
+{
+  "phone": "96891234567",
+  "customerName": null,
+  "email": null,
+  "paymentMethod": "Cash",
+  "slots": [
+    {
+      "bookingDate": "2030-08-01",
+      "startTime": "10:00:00",
+      "hours": 1
+    }
+  ]
+}
+
+###
+
+### Search bookings as an administrator
+GET {{PadelBooking.API_HostAddress}}/api/bookings/search?page=1&pageSize=20
+Authorization: Bearer {{AdminToken}}
+Accept: application/json
