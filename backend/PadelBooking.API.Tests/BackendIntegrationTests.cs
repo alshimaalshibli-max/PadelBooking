@@ -385,6 +385,33 @@ public class BackendIntegrationTests
     }
 
     [Fact]
+    public async Task DuplicateClosure_IsRejectedWithoutCreatingAnotherRecord()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        await AuthenticateAdminAsync(client);
+        var closureDate = FutureDate(32);
+        var request = new
+        {
+            courtId = 1,
+            date = closureDate,
+            reason = "Duplicate prevention test"
+        };
+
+        var firstResponse = await client.PostAsJsonAsync("/api/closures", request);
+        var duplicateResponse = await client.PostAsJsonAsync("/api/closures", request);
+
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+
+        var closures = await client.GetFromJsonAsync<List<ClosureDto>>("/api/closures", JsonOptions);
+        Assert.NotNull(closures);
+        Assert.Single(
+            closures,
+            closure => closure.CourtId == 1 && closure.Date.Date == closureDate.Date);
+    }
+
+    [Fact]
     public async Task BookingLifecycle_EnforcesCancelPayAndCompleteRules()
     {
         await using var factory = new ApiFactory();
