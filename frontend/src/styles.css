@@ -153,6 +153,8 @@ h1, h2, h3, p { margin-top: 0; }
 .payment-options legend { margin-bottom: 10px; font-size: 13px; font-weight: 800; }
 .payment-option { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; cursor: pointer; transition: 160ms; }
 .payment-option--active { border-color: var(--green-700); background: #f3f9f6; box-shadow: 0 0 0 2px rgba(23,99,77,0.08); }
+.payment-option--disabled { cursor: not-allowed; opacity: 0.64; background: #f5f7f6; }
+.payment-option--disabled .payment-option__icon { color: #65746e; background: #e7ece9; }
 .payment-option input { position: absolute; opacity: 0; }
 .payment-option__icon { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 12px; color: var(--green-950); background: var(--lime-soft); font-weight: 900; }
 .payment-option > span:last-child { display: grid; gap: 3px; }

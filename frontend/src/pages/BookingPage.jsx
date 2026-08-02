@@ -70,6 +70,8 @@ export default function BookingPage() {
   const [draftPriceError, setDraftPriceError] = useState('')
   const [priceError, setPriceError] = useState('')
   const [error, setError] = useState('')
+  const [paymentConfiguration, setPaymentConfiguration] = useState(null)
+  const [paymentConfigurationError, setPaymentConfigurationError] = useState('')
 
   const totalHours = useMemo(
     () => appointments.reduce((total, item) => total + item.hours, 0),
@@ -102,6 +104,31 @@ export default function BookingPage() {
       .catch((requestError) => {
         if (requestError.name !== 'AbortError') {
           setOffersError(requestError.message)
+        }
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setPaymentConfigurationError('')
+
+    apiRequest('/payments/configuration', { signal: controller.signal })
+      .then((result) => {
+        setPaymentConfiguration(result)
+        if (!result?.thawaniEnabled) {
+          setCustomer((current) => current.paymentMethod === 'Thawani'
+            ? { ...current, paymentMethod: 'Cash' }
+            : current)
+        }
+      })
+      .catch((requestError) => {
+        if (requestError.name !== 'AbortError') {
+          setPaymentConfiguration(null)
+          setPaymentConfigurationError(
+            'تعذر التحقق من جاهزية الدفع الإلكتروني. يمكنك استخدام الدفع عند الوصول.',
+          )
         }
       })
 
@@ -235,6 +262,11 @@ export default function BookingPage() {
     event.preventDefault()
     setError('')
 
+    if (customer.paymentMethod === 'Thawani' && !paymentConfiguration?.thawaniEnabled) {
+      setError('الدفع عبر ثواني غير متاح حتى يتم ضبط مفاتيح Sandbox في الخادم.')
+      return
+    }
+
     if (appointments.length === 0) {
       setError('أضف موعدًا واحدًا على الأقل.')
       return
@@ -309,6 +341,7 @@ export default function BookingPage() {
   }
 
   const draftPrice = draftPreview?.slots?.[0]
+  const thawaniEnabled = paymentConfiguration?.thawaniEnabled === true
 
   return (
     <main>
@@ -403,7 +436,7 @@ export default function BookingPage() {
                   type="date"
                   value={date}
                   min={today}
-                  onChange={(event) => setDate(event.target.value)}
+                  onInput={(event) => setDate(event.currentTarget.value)}
                 />
               </label>
               <label className="field">
@@ -607,21 +640,43 @@ export default function BookingPage() {
                   <small>ادفع في موقع الملعب</small>
                 </span>
               </label>
-              <label className={customer.paymentMethod === 'Thawani' ? 'payment-option payment-option--active' : 'payment-option'}>
+              <label
+                className={[
+                  'payment-option',
+                  customer.paymentMethod === 'Thawani' ? 'payment-option--active' : '',
+                  !thawaniEnabled ? 'payment-option--disabled' : '',
+                ].filter(Boolean).join(' ')}
+              >
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="Thawani"
                   checked={customer.paymentMethod === 'Thawani'}
                   onChange={updateCustomer}
+                  disabled={!thawaniEnabled}
                 />
                 <span className="payment-option__icon">ث</span>
                 <span>
                   <strong>ثواني</strong>
-                  <small>دفع إلكتروني آمن</small>
+                  <small>
+                    {thawaniEnabled
+                      ? 'دفع إلكتروني آمن عبر بيئة Sandbox'
+                      : paymentConfigurationError
+                        ? 'تعذر التحقق من جاهزية الخدمة'
+                        : paymentConfiguration
+                          ? 'يتطلب مفاتيح Thawani Sandbox'
+                          : 'جارٍ التحقق من جاهزية الخدمة...'}
+                  </small>
                 </span>
               </label>
             </fieldset>
+
+            {paymentConfiguration && !thawaniEnabled && (
+              <Feedback type="info">
+                الدفع عند الوصول متاح. يتفعّل خيار ثواني تلقائيًا عند ضبط مفاتيح Sandbox في الخادم.
+              </Feedback>
+            )}
+            <Feedback type="error">{paymentConfigurationError}</Feedback>
 
             <div className="price-summary" aria-live="polite">
               <div className="price-summary__title">

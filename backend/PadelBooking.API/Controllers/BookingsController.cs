@@ -15,15 +15,18 @@ public class BookingsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly BookingService _bookingService;
     private readonly IAppClock _clock;
+    private readonly IThawaniPaymentService _thawani;
 
     public BookingsController(
         AppDbContext context,
         BookingService bookingService,
-        IAppClock clock)
+        IAppClock clock,
+        IThawaniPaymentService thawani)
     {
         _context = context;
         _bookingService = bookingService;
         _clock = clock;
+        _thawani = thawani;
     }
 
     [HttpGet]
@@ -221,6 +224,14 @@ public class BookingsController : ControllerBase
         CreateBookingDto dto,
         CancellationToken cancellationToken)
     {
+        if (dto.PaymentMethod == "Thawani" && !_thawani.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message = "Thawani Sandbox is not configured. Please use cash payment or configure the Sandbox keys."
+            });
+        }
+
         var request = new CreateBookingBatchDto
         {
             CustomerName = dto.CustomerName,
@@ -269,6 +280,14 @@ public class BookingsController : ControllerBase
         CreateBookingBatchDto dto,
         CancellationToken cancellationToken)
     {
+        if (dto.PaymentMethod == "Thawani" && !_thawani.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message = "Thawani Sandbox is not configured. Please use cash payment or configure the Sandbox keys."
+            });
+        }
+
         var result = await _bookingService.CreateAsync(dto, cancellationToken);
         if (!result.IsSuccess)
         {

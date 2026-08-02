@@ -68,6 +68,50 @@ public class BackendIntegrationTests
     }
 
     [Fact]
+    public async Task PaymentConfiguration_ReportsAvailabilityWithoutExposingKeys()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/payments/configuration");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var configuration = await ReadJsonAsync<PaymentConfigurationDto>(response);
+        Assert.True(configuration.CashEnabled);
+        Assert.False(configuration.ThawaniEnabled);
+
+        var responseText = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("SecretKey", responseText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PublishableKey", responseText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UnconfiguredThawani_IsRejectedBeforeBookingIsSaved()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var phone = "97770000";
+
+        var response = await client.PostAsJsonAsync("/api/bookings", new
+        {
+            phone,
+            bookingDate = FutureDate(12),
+            startTime = "15:00:00",
+            hours = 1,
+            paymentMethod = "Thawani"
+        });
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        await AuthenticateAdminAsync(client);
+        var search = await client.GetFromJsonAsync<PagedResultDto<BookingDto>>(
+            $"/api/bookings/search?phone={phone}&page=1&pageSize=20",
+            JsonOptions);
+        Assert.NotNull(search);
+        Assert.Equal(0, search.TotalCount);
+    }
+
+    [Fact]
     public async Task PricePreview_AppliesOfferWithoutSavingBooking()
     {
         await using var factory = new ApiFactory();
@@ -226,7 +270,7 @@ public class BackendIntegrationTests
     [Fact]
     public async Task ThawaniSessionFailure_CancelsUnpaidBookingsAndReleasesTheSlot()
     {
-        await using var factory = new ApiFactory();
+        await using var factory = new ApiFactory(thawaniConfigured: true);
         using var client = factory.CreateClient();
         var date = FutureDate(13);
 

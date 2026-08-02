@@ -12,14 +12,24 @@ namespace PadelBooking.API.Controllers;
 public class PaymentsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly ThawaniPaymentService _thawani;
+    private readonly IThawaniPaymentService _thawani;
 
     public PaymentsController(
         AppDbContext context,
-        ThawaniPaymentService thawani)
+        IThawaniPaymentService thawani)
     {
         _context = context;
         _thawani = thawani;
+    }
+
+    [HttpGet("configuration")]
+    public ActionResult<PaymentConfigurationDto> GetPaymentConfiguration()
+    {
+        return Ok(new PaymentConfigurationDto
+        {
+            CashEnabled = true,
+            ThawaniEnabled = _thawani.IsConfigured
+        });
     }
 
     [HttpPost("thawani/sessions")]

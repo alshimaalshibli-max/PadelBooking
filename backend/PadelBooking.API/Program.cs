@@ -28,7 +28,7 @@ builder.Services.AddSingleton<BookingQuoteProtector>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.Configure<ThawaniOptions>(
     builder.Configuration.GetSection(ThawaniOptions.SectionName));
-builder.Services.AddHttpClient<ThawaniPaymentService>((serviceProvider, client) =>
+builder.Services.AddHttpClient<IThawaniPaymentService, ThawaniPaymentService>((serviceProvider, client) =>
 {
     var options = serviceProvider
         .GetRequiredService<Microsoft.Extensions.Options.IOptions<ThawaniOptions>>()

@@ -18,9 +18,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     private const string TestJwtKey = "Test-Only-Jwt-Signing-Key-With-More-Than-32-Bytes";
     private readonly SqliteConnection _connection = new("Data Source=:memory:");
+    private readonly bool _thawaniConfigured;
 
-    public ApiFactory()
+    public ApiFactory(bool thawaniConfigured = false)
     {
+        _thawaniConfigured = thawaniConfigured;
         _connection.Open();
     }
 
@@ -53,6 +55,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(_connection));
             services.RemoveAll<ICourtSelector>();
             services.AddSingleton<ICourtSelector, HighestPriceCourtSelector>();
+            services.RemoveAll<IThawaniPaymentService>();
+            services.AddSingleton<IThawaniPaymentService>(
+                new TestThawaniPaymentService(_thawaniConfigured));
             services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,
                 options =>
@@ -70,6 +75,36 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
                     };
                 });
         });
+    }
+}
+
+internal sealed class TestThawaniPaymentService(bool isConfigured) : IThawaniPaymentService
+{
+    public bool IsConfigured { get; } = isConfigured;
+
+    public Task<ThawaniSessionResult> CreateSessionAsync(
+        IReadOnlyCollection<Booking> bookings,
+        string clientReferenceId,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new ThawaniSessionResult(
+            false,
+            "Simulated Thawani session failure.",
+            null,
+            null));
+    }
+
+    public Task<ThawaniVerificationResult> VerifySessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(new ThawaniVerificationResult(
+            false,
+            "Simulated Thawani verification failure.",
+            false,
+            null,
+            null,
+            null));
     }
 }
 

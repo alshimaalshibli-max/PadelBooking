@@ -39,7 +39,10 @@ public class ThawaniPaymentServiceTests
             {
                 Id = 1,
                 BookingDate = new DateTime(2026, 8, 10),
-                TotalPrice = 10.500m
+                TotalPrice = 10.500m,
+                CustomerName = "Sandbox Customer",
+                Phone = "96890000000",
+                Email = "sandbox@example.com"
             }
         };
 
@@ -56,6 +59,12 @@ public class ThawaniPaymentServiceTests
         using var payload = JsonDocument.Parse(requestBody);
         var product = payload.RootElement.GetProperty("products")[0];
         Assert.Equal(10500, product.GetProperty("unit_amount").GetInt32());
+
+        var metadata = payload.RootElement.GetProperty("metadata");
+        Assert.Equal("1", metadata.GetProperty("booking_ids").GetString());
+        Assert.Equal("Sandbox Customer", metadata.GetProperty("customer_name").GetString());
+        Assert.Equal("96890000000", metadata.GetProperty("contact_number").GetString());
+        Assert.Equal("sandbox@example.com", metadata.GetProperty("email").GetString());
     }
 
     [Fact]

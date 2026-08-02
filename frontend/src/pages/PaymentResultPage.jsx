@@ -48,10 +48,9 @@ export default function PaymentResultPage({ mode }) {
     }
     if (location.state?.cashBooking) return
 
-    const sessionId = searchParams.get('session_id') || searchParams.get('sessionId')
     const storedPayment = sessionStorage.getItem('pending_thawani_payment')
 
-    if (!sessionId || !storedPayment) {
+    if (!storedPayment) {
       setStatus('error')
       setMessage('تعذر العثور على معلومات جلسة الدفع.')
       return
@@ -66,6 +65,16 @@ export default function PaymentResultPage({ mode }) {
       setMessage('تعذر قراءة معلومات جلسة الدفع.')
       return
     }
+
+    const sessionId = searchParams.get('session_id')
+      || searchParams.get('sessionId')
+      || pendingPayment.sessionId
+    if (!sessionId) {
+      setStatus('error')
+      setMessage('تعذر العثور على رقم جلسة الدفع.')
+      return
+    }
+
     apiRequest('/payments/thawani/verify', {
       method: 'POST',
       body: {

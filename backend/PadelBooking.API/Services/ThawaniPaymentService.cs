@@ -19,7 +19,21 @@ public record ThawaniVerificationResult(
     int? TotalAmount,
     string? Currency);
 
-public class ThawaniPaymentService
+public interface IThawaniPaymentService
+{
+    bool IsConfigured { get; }
+
+    Task<ThawaniSessionResult> CreateSessionAsync(
+        IReadOnlyCollection<Booking> bookings,
+        string clientReferenceId,
+        CancellationToken cancellationToken);
+
+    Task<ThawaniVerificationResult> VerifySessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken);
+}
+
+public class ThawaniPaymentService : IThawaniPaymentService
 {
     private readonly HttpClient _httpClient;
     private readonly ThawaniOptions _options;
@@ -52,6 +66,7 @@ public class ThawaniPaymentService
             quantity = 1,
             unit_amount = ToMinorUnits(booking.TotalPrice)
         });
+        var customer = bookings.First();
 
         var payload = new
         {
@@ -62,7 +77,10 @@ public class ThawaniPaymentService
             cancel_url = _options.CancelUrl,
             metadata = new
             {
-                booking_ids = string.Join(",", bookings.Select(booking => booking.Id))
+                booking_ids = string.Join(",", bookings.Select(booking => booking.Id)),
+                customer_name = customer.CustomerName,
+                contact_number = customer.Phone,
+                email = customer.Email ?? string.Empty
             }
         };
 
