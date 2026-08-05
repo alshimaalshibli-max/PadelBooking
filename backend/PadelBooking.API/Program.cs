@@ -1,6 +1,7 @@
 using System.Text;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -21,6 +22,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database");
 builder.Services.AddSingleton<IAppClock, OmanClock>();
 builder.Services.AddSingleton<BookingCreationLock>();
 builder.Services.AddSingleton<ICourtSelector, RandomCourtSelector>();
@@ -105,6 +108,12 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+var platformPort = Environment.GetEnvironmentVariable("PORT");
+if (int.TryParse(platformPort, out var port) && port > 0)
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 var app = builder.Build();
 
 // Create and seed the database only when the required records do not exist.
@@ -158,7 +167,9 @@ using (var scope = app.Services.CreateScope())
     db.SaveChanges();
 }
 
-if (app.Environment.IsDevelopment())
+var swaggerEnabled = app.Environment.IsDevelopment() ||
+    builder.Configuration.GetValue<bool>("Swagger:Enabled");
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -168,12 +179,43 @@ app.UseExceptionHandler();
 
 app.UseHttpsRedirection();
 
+var hasFrontend = app.Environment.WebRootFileProvider
+    .GetFileInfo("index.html")
+    .Exists;
+if (hasFrontend)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+
 app.UseCors("Frontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(entry => new
+            {
+                name = entry.Key,
+                status = entry.Value.Status.ToString(),
+                description = entry.Value.Description
+            })
+        });
+    }
+});
 app.MapControllers();
+
+if (hasFrontend)
+{
+    app.MapFallbackToFile("index.html");
+}
 
 app.Run();
 

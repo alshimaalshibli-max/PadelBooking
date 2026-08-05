@@ -12,6 +12,23 @@ public class BackendIntegrationTests
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
+    public async Task HealthCheck_ReportsHealthyDatabase()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await ReadJsonAsync<JsonElement>(response);
+        Assert.Equal("Healthy", payload.GetProperty("status").GetString());
+
+        var databaseCheck = Assert.Single(payload.GetProperty("checks").EnumerateArray());
+        Assert.Equal("database", databaseCheck.GetProperty("name").GetString());
+        Assert.Equal("Healthy", databaseCheck.GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task AdminLogin_AcceptsValidCredentials_AndRejectsInvalidCredentials()
     {
         await using var factory = new ApiFactory();
