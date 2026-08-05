@@ -62,6 +62,7 @@ public class BackendIntegrationTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/offers")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/closures")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/bookings/search")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard/summary")).StatusCode);
     }
 
     [Fact]
@@ -515,6 +516,61 @@ public class BackendIntegrationTests
         Assert.Equal(2, page.TotalPages);
         Assert.Equal(1, page.Page);
         Assert.Equal(1, page.PageSize);
+    }
+
+    [Fact]
+    public async Task DashboardSummary_IsProtectedAndReportsBookingLifecycleTotals()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var date = FutureDate(45);
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/api/dashboard/summary")).StatusCode);
+
+        var completedResponse = await CreateBookingAsync(
+            client,
+            date,
+            TimeSpan.FromHours(9),
+            phone: "95550001");
+        var completedBooking = await ReadJsonAsync<BookingConfirmationDto>(completedResponse);
+        var cancelledResponse = await CreateBookingAsync(
+            client,
+            date,
+            TimeSpan.FromHours(10),
+            phone: "95550002");
+        var cancelledBooking = await ReadJsonAsync<BookingConfirmationDto>(cancelledResponse);
+        await CreateBookingAsync(
+            client,
+            date,
+            TimeSpan.FromHours(11),
+            phone: "95550003");
+
+        await AuthenticateAdminAsync(client);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await client.PatchAsync($"/api/bookings/{completedBooking.Id}/pay", null)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await client.PatchAsync($"/api/bookings/{completedBooking.Id}/complete", null)).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await client.PatchAsync($"/api/bookings/{cancelledBooking.Id}/cancel", null)).StatusCode);
+
+        var summary = await client.GetFromJsonAsync<DashboardSummaryDto>(
+            "/api/dashboard/summary",
+            JsonOptions);
+
+        Assert.NotNull(summary);
+        Assert.Equal(3, summary.TotalBookings);
+        Assert.Equal(0, summary.TodayBookings);
+        Assert.Equal(1, summary.ConfirmedBookings);
+        Assert.Equal(1, summary.CompletedBookings);
+        Assert.Equal(1, summary.CancelledBookings);
+        Assert.Equal(1, summary.PaidBookings);
+        Assert.Equal(1, summary.PendingPayments);
+        Assert.Equal(completedBooking.TotalPrice, summary.PaidRevenue);
     }
 
     private static async Task<HttpResponseMessage> CreateBookingAsync(

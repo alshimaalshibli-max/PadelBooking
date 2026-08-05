@@ -220,6 +220,14 @@ h1, h2, h3, p { margin-top: 0; }
 .metric-card { min-width: 140px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 16px; background: white; box-shadow: 0 8px 24px rgba(9,43,34,.05); }
 .metric-card span { display: block; color: var(--muted); font-size: 12px; }
 .metric-card strong { font-size: 27px; }
+.dashboard-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.dashboard-stat { min-width: 0; padding: 20px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(9,43,34,.05); }
+.dashboard-stat span, .dashboard-stat small { display: block; color: var(--muted); }
+.dashboard-stat span { margin-bottom: 7px; font-size: 12px; font-weight: 800; }
+.dashboard-stat strong { display: block; overflow-wrap: anywhere; font-size: 28px; }
+.dashboard-stat small { margin-top: 6px; font-size: 11px; }
+.dashboard-stat--revenue { color: white; border-color: var(--green-950); background: var(--green-950); }
+.dashboard-stat--revenue span, .dashboard-stat--revenue small { color: #bcd0c9; }
 .filter-panel { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(9,43,34,.05); }
 .filter-panel .field { margin: 0; }
 .filter-panel__actions { display: flex; align-items: flex-end; gap: 8px; }
@@ -273,6 +281,7 @@ td small { margin-top: 4px; color: var(--muted); }
 .closure-delete:focus-visible { border-color: #e4aab2; outline: none; box-shadow: 0 0 0 3px rgba(180,59,71,.13); }
 
 @media (max-width: 1100px) {
+  .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-panel { grid-template-columns: repeat(3, 1fr); }
   .admin-split { grid-template-columns: 340px 1fr; }
   .resource-list { grid-template-columns: 1fr; }
@@ -330,6 +339,7 @@ td small { margin-top: 4px; color: var(--muted); }
   .admin-section__heading { align-items: flex-start; flex-direction: column; }
   .admin-section__heading h1 { font-size: 30px; }
   .metric-card { width: 100%; }
+  .dashboard-metrics { grid-template-columns: 1fr; }
   .filter-panel { grid-template-columns: 1fr; padding: 15px; }
   .filter-panel__actions { align-items: stretch; }
   .resource-list { grid-template-columns: 1fr; }

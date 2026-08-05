@@ -25,6 +25,7 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
   const [appliedFilters, setAppliedFilters] = useState(initialFilters)
   const [page, setPage] = useState(1)
   const [data, setData] = useState({ items: [], totalCount: 0, totalPages: 0 })
+  const [summary, setSummary] = useState(null)
   const [courts, setCourts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -51,6 +52,15 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
     }
   }, [appliedFilters, handleError, page, token])
 
+  const loadSummary = useCallback(async () => {
+    try {
+      const result = await apiRequest('/dashboard/summary', { token })
+      setSummary(result)
+    } catch (requestError) {
+      handleError(requestError)
+    }
+  }, [handleError, token])
+
   useEffect(() => {
     apiRequest('/courts', { token })
       .then(setCourts)
@@ -60,6 +70,10 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
   useEffect(() => {
     loadBookings()
   }, [loadBookings])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
 
   const applyFilters = (event) => {
     event.preventDefault()
@@ -80,7 +94,7 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
         method: 'PATCH',
         token,
       })
-      await loadBookings()
+      await Promise.all([loadBookings(), loadSummary()])
     } catch (requestError) {
       handleError(requestError)
     }
@@ -101,6 +115,29 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
           <span>النتائج</span>
           <strong>{data.totalCount}</strong>
         </div>
+      </div>
+
+      <div className="dashboard-metrics" aria-label="ملخص الحجوزات">
+        <article className="dashboard-stat card">
+          <span>إجمالي الحجوزات</span>
+          <strong>{summary?.totalBookings ?? '—'}</strong>
+          <small>{summary ? `${summary.confirmedBookings} حجز مؤكد` : 'جارٍ التحديث'}</small>
+        </article>
+        <article className="dashboard-stat card">
+          <span>حجوزات اليوم</span>
+          <strong>{summary?.todayBookings ?? '—'}</strong>
+          <small>{summary ? `${summary.completedBookings} حجز مكتمل` : 'جارٍ التحديث'}</small>
+        </article>
+        <article className="dashboard-stat card">
+          <span>بانتظار الدفع</span>
+          <strong>{summary?.pendingPayments ?? '—'}</strong>
+          <small>{summary ? `${summary.cancelledBookings} حجز ملغي` : 'جارٍ التحديث'}</small>
+        </article>
+        <article className="dashboard-stat dashboard-stat--revenue card">
+          <span>الإيراد المحصّل</span>
+          <strong>{summary ? formatCurrency(summary.paidRevenue) : '—'}</strong>
+          <small>{summary ? `${summary.paidBookings} حجز مدفوع` : 'جارٍ التحديث'}</small>
+        </article>
       </div>
 
       <form className="filter-panel card" onSubmit={applyFilters}>
