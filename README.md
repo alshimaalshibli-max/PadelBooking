@@ -2,6 +2,46 @@
 
 منصة عربية متجاوبة لحجز ملاعب البادل، تتكون من واجهة عميل ولوحة إدارة داخل تطبيق React واحد، مع Backend مبني على ASP.NET Core 8 وEntity Framework Core وSQLite.
 
+[![CI](https://github.com/alshimaalshibli-max/PadelBooking/actions/workflows/ci.yml/badge.svg)](https://github.com/alshimaalshibli-max/PadelBooking/actions/workflows/ci.yml)
+
+## التجربة المباشرة
+
+- الموقع: [PadelBooking Live Demo](https://web-production-69d1f8.up.railway.app/)
+- لوحة الإدارة: [Admin Login](https://web-production-69d1f8.up.railway.app/admin/login)
+- Swagger: [API Documentation](https://web-production-69d1f8.up.railway.app/swagger)
+- Health Check: [Service Health](https://web-production-69d1f8.up.railway.app/health)
+
+بيانات دخول الإدارة المخصصة لنسخة التقييم:
+
+- اسم المستخدم: `admin`
+- كلمة المرور: `PadelDemo-2026!`
+
+هذه بيانات Demo عامة ومؤقتة لتمكين المقيّم من تجربة لوحة الإدارة. قاعدة بيانات العرض منفصلة عن قاعدة التطوير المحلية، وتحتوي على بيانات تجريبية فقط. لا تُستخدم هذه البيانات أو كلمة المرور في أي بيئة إنتاج.
+
+### مسار تقييم سريع
+
+1. افتح واجهة العميل، واختر عرض 3 ساعات لمشاهدة السعر الأصلي والسعر بعد الخصم والمبلغ الموفّر.
+2. اختر وقتًا متاحًا، وأضف الفترة إلى الحجز، ثم جرّب الدفع عند الوصول أو Thawani UAT.
+3. لاختبار الدفع المقبول استخدم البطاقة الرسمية `4242 4242 4242 4242`، وتاريخ انتهاء مستقبلي، وأي CVV، ثم OTP بقيمة `1234`.
+4. افتح لوحة الإدارة بالبيانات أعلاه لتجربة الملاعب والحجوزات والعروض والإغلاقات والفلاتر وPagination.
+5. استخدم Swagger لمراجعة المسارات العامة والمسارات الإدارية المحمية بـJWT.
+
+بطاقات UAT لا تخصم أي مبلغ حقيقي. تفاصيل البطاقة مأخوذة من [توثيق بطاقات Thawani الرسمي](https://thawani-technologies.stoplight.io/docs/thawani-ecommerce-api/7c0f75e1668d7-thawani-test-card).
+
+## صور المشروع
+
+### واجهة العميل
+
+![واجهة PadelBooking الرئيسية](docs/screenshots/customer-home.png)
+
+### اختيار الساعات وعرض السعر
+
+![اختيار الساعات والسعر بعد الخصم](docs/screenshots/customer-booking.png)
+
+### لوحة الإدارة
+
+![لوحة إدارة PadelBooking](docs/screenshots/admin-dashboard.png)
+
 ## الوظائف الرئيسية
 
 - عرض الأوقات المتاحة دون كشف أسماء الملاعب للعميل.
@@ -39,7 +79,7 @@
 - اسم المستخدم: `admin`
 - كلمة المرور: `PadelDemo-2026!`
 
-هذه بيانات تجريبية مقترحة للتشغيل المحلي فقط، وليست إعدادات افتراضية داخل التطبيق. غيّرها عند أي نشر حقيقي.
+هذه بيانات نسخة التقييم فقط، وليست إعدادات افتراضية داخل التطبيق. استبدلها بقيم خاصة وقوية عند أي نشر حقيقي.
 
 ```powershell
 $env:AdminAuth__Username="admin"
@@ -85,6 +125,29 @@ Set-Location frontend
 npm install
 npm run build
 ```
+
+## CI والنشر
+
+يشغّل GitHub Actions تلقائيًا عند كل Push أو Pull Request:
+
+- استعادة حزم Backend وبناؤه بوضع Release.
+- تشغيل جميع اختبارات xUnit.
+- تثبيت حزم Frontend باستخدام `npm ci` وبناء Vite.
+- بناء صورة Docker كاملة دون نشرها.
+
+يحتوي المستودع على `Dockerfile` متعدد المراحل و`railway.json`. عند النشر يجب ربط Volume دائم بالمسار `/data` وضبط القيم التالية كمتغيرات بيئة في منصة الاستضافة، لا داخل GitHub:
+
+- `ConnectionStrings__DefaultConnection`
+- `AdminAuth__Username`
+- `AdminAuth__Password`
+- `AdminAuth__JwtKey`
+- `BookingQuotes__EncryptionKey`
+- `Thawani__SecretKey`
+- `Thawani__PublishableKey`
+- `Thawani__SuccessUrl`
+- `Thawani__CancelUrl`
+
+يخدم Backend حزمة React من `wwwroot` في صورة الإنتاج، ويعرض `/health` فحصًا فعليًا لاتصال SQLite. نسخة Railway الحالية تستخدم قاعدة جديدة داخل `/data/padelbooking.db` ولا ترفع ملف `padelbooking.db` المحلي.
 
 ## تشغيل الاختبارات
 
