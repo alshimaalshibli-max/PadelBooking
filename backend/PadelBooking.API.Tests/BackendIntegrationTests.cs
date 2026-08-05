@@ -2,7 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using PadelBooking.API.Data;
 using PadelBooking.API.DTOs;
+using PadelBooking.API.Models;
+using PadelBooking.API.Services;
 using Xunit;
 
 namespace PadelBooking.API.Tests;
@@ -63,6 +67,7 @@ public class BackendIntegrationTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/closures")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/bookings/search")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard/summary")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/dashboard/statistics")).StatusCode);
     }
 
     [Fact]
@@ -571,6 +576,135 @@ public class BackendIntegrationTests
         Assert.Equal(1, summary.PaidBookings);
         Assert.Equal(1, summary.PendingPayments);
         Assert.Equal(completedBooking.TotalPrice, summary.PaidRevenue);
+    }
+
+    [Fact]
+    public async Task DashboardStatistics_ReportOperationalAndFinancialMetrics()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.GetAsync("/api/dashboard/statistics?days=7")).StatusCode);
+
+        DateTime today;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            today = scope.ServiceProvider.GetRequiredService<IAppClock>().Today;
+            var currentMonthStart = new DateTime(today.Year, today.Month, 1);
+            var previousMonthStart = currentMonthStart.AddMonths(-1);
+
+            context.Bookings.AddRange(
+                StatisticsBooking(
+                    1,
+                    "96660001",
+                    today,
+                    TimeSpan.FromHours(18),
+                    10,
+                    "Paid",
+                    "Confirmed"),
+                StatisticsBooking(
+                    1,
+                    "96660002",
+                    today,
+                    TimeSpan.FromHours(18),
+                    20,
+                    "Paid",
+                    "Completed"),
+                StatisticsBooking(
+                    2,
+                    "96660003",
+                    currentMonthStart,
+                    TimeSpan.FromHours(12),
+                    30,
+                    "Pending",
+                    "Confirmed"),
+                StatisticsBooking(
+                    2,
+                    "96660004",
+                    previousMonthStart,
+                    TimeSpan.FromHours(14),
+                    15,
+                    "Pending",
+                    "Cancelled"),
+                StatisticsBooking(
+                    2,
+                    "96660005",
+                    previousMonthStart.AddDays(1),
+                    TimeSpan.FromHours(16),
+                    40,
+                    "Paid",
+                    "Completed"));
+            await context.SaveChangesAsync();
+        }
+
+        await AuthenticateAdminAsync(client);
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            (await client.GetAsync("/api/dashboard/statistics?days=14")).StatusCode);
+
+        var statistics = await client.GetFromJsonAsync<DashboardStatisticsDto>(
+            "/api/dashboard/statistics?days=7",
+            JsonOptions);
+
+        Assert.NotNull(statistics);
+        Assert.Equal(today, statistics.BusiestDate);
+        Assert.True(statistics.BusiestDateBookings >= 2);
+        Assert.Equal(TimeSpan.FromHours(18), statistics.MostPopularStartTime);
+        Assert.Equal(2, statistics.MostPopularStartTimeBookings);
+        Assert.Equal(25m, statistics.AverageBookingValue);
+        Assert.Equal(1, statistics.MostBookedCourtId);
+        Assert.Equal("Court 1", statistics.MostBookedCourtName);
+        Assert.Equal(2, statistics.MostBookedCourtBookings);
+        Assert.InRange(statistics.OccupancyRate, 0.1m, 99.9m);
+        Assert.Equal(3, statistics.CurrentMonthBookings);
+        Assert.Equal(1, statistics.PreviousMonthBookings);
+        Assert.Equal(2, statistics.BookingsDifference);
+        Assert.Equal(200m, statistics.BookingsChangePercentage);
+        Assert.Equal(70m, statistics.TotalRevenue);
+        Assert.Equal(30m, statistics.CurrentMonthRevenue);
+        Assert.Equal(40m, statistics.PreviousMonthRevenue);
+        Assert.Equal(-10m, statistics.RevenueDifference);
+        Assert.Equal(-25m, statistics.RevenueChangePercentage);
+        Assert.Equal(2, statistics.TotalCourts);
+        Assert.Equal(2, statistics.ActiveCourts);
+        Assert.Equal(5, statistics.UniqueCustomers);
+        Assert.Equal(7, statistics.DailyRangeDays);
+        Assert.Equal(7, statistics.DailyBookings.Count);
+        Assert.True(statistics.DailyBookings[^1].Count >= 2);
+        Assert.Equal(6, statistics.MonthlyRevenue.Count);
+        Assert.Equal(1, statistics.BookingStatuses.Confirmed);
+        Assert.Equal(2, statistics.BookingStatuses.Completed);
+        Assert.Equal(1, statistics.BookingStatuses.Cancelled);
+        Assert.Equal(1, statistics.BookingStatuses.Pending);
+    }
+
+    private static Booking StatisticsBooking(
+        int courtId,
+        string phone,
+        DateTime bookingDate,
+        TimeSpan startTime,
+        decimal totalPrice,
+        string paymentStatus,
+        string bookingStatus)
+    {
+        return new Booking
+        {
+            CourtId = courtId,
+            CustomerName = "Statistics test",
+            Phone = phone,
+            BookingDate = bookingDate,
+            StartTime = startTime,
+            EndTime = startTime.Add(TimeSpan.FromHours(1)),
+            Hours = 1,
+            TotalPrice = totalPrice,
+            PaymentMethod = "Cash",
+            PaymentStatus = paymentStatus,
+            BookingStatus = bookingStatus,
+            CreatedAt = DateTime.UtcNow
+        };
     }
 
     private static async Task<HttpResponseMessage> CreateBookingAsync(

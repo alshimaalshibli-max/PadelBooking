@@ -133,11 +133,6 @@ export default function BookingsAdmin({ token, onUnauthorized }) {
           <strong>{summary?.pendingPayments ?? '—'}</strong>
           <small>{summary ? `${summary.cancelledBookings} حجز ملغي` : 'جارٍ التحديث'}</small>
         </article>
-        <article className="dashboard-stat dashboard-stat--revenue card">
-          <span>الإيراد المحصّل</span>
-          <strong>{summary ? formatCurrency(summary.paidRevenue) : '—'}</strong>
-          <small>{summary ? `${summary.paidBookings} حجز مدفوع` : 'جارٍ التحديث'}</small>
-        </article>
       </div>
 
       <form className="filter-panel card" onSubmit={applyFilters}>

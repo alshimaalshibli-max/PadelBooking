@@ -5,10 +5,12 @@ import BookingsAdmin from '../admin/BookingsAdmin'
 import CourtsAdmin from '../admin/CourtsAdmin'
 import OffersAdmin from '../admin/OffersAdmin'
 import ClosuresAdmin from '../admin/ClosuresAdmin'
+import StatisticsAdmin from '../admin/StatisticsAdmin'
 import { useRouter } from '../router'
 
 const tabs = [
   { id: 'bookings', label: 'الحجوزات', icon: 'ح' },
+  { id: 'statistics', label: 'الإحصائيات', icon: 'إ' },
   { id: 'courts', label: 'الملاعب', icon: 'م' },
   { id: 'offers', label: 'العروض', icon: '%' },
   { id: 'closures', label: 'الإغلاقات', icon: '×' },
@@ -48,6 +50,7 @@ export default function AdminDashboardPage() {
         <header className="admin-topbar"><button className="menu-button" onClick={() => setMenuOpen(true)}>☰</button><div><strong>{tabs.find((tab) => tab.id === activeTab)?.label}</strong><small>لوحة إدارة ملعبك</small></div><span className="admin-avatar">إ</span></header>
         <div className="admin-content">
           {activeTab === 'bookings' && <BookingsAdmin {...contentProps} />}
+          {activeTab === 'statistics' && <StatisticsAdmin {...contentProps} />}
           {activeTab === 'courts' && <CourtsAdmin {...contentProps} />}
           {activeTab === 'offers' && <OffersAdmin {...contentProps} />}
           {activeTab === 'closures' && <ClosuresAdmin {...contentProps} />}
